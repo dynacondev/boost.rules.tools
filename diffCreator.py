@@ -28,12 +28,12 @@ def main(folder_path):
     diffed_sources_folder.mkdir(parents=True, exist_ok=True)
 
     # Step 5: Download and extract the URL
-    response = requests.get(url)
-    tar_path = diffed_sources_folder / "downloaded.tar.gz"
-    with open(tar_path, "wb") as f:
-        f.write(response.content)
-    with tarfile.open(tar_path, "r:gz") as tar:
-        tar.extractall(path=diffed_sources_folder)
+    # response = requests.get(url)
+    # tar_path = diffed_sources_folder / "downloaded.tar.gz"
+    # with open(tar_path, "wb") as f:
+    #     f.write(response.content)
+    # with tarfile.open(tar_path, "r:gz") as tar:
+    #     tar.extractall(path=diffed_sources_folder) # TODO RE-ADD THIS!
 
     # Find the first directory inside 'diffed_sources_folder'
     first_directory_inside_diffed_sources = None
@@ -63,15 +63,38 @@ def main(folder_path):
     # Step 7: Create git diff
     subprocess.run(["git", "init"], cwd=first_directory_inside_diffed_sources)
 
-    # Add only the copied files to the staging area
+    # Convert copied paths to relative paths and add them to the staging area
     for path in copied_paths:
-        subprocess.run(["git", "add", str(path)], cwd=first_directory_inside_diffed_sources)
+        relative_path = path.relative_to(first_directory_inside_diffed_sources)
+        subprocess.run(["git", "add", str(relative_path)], cwd=first_directory_inside_diffed_sources)
 
     # Create and write the git diff
     diff_command = ["git", "diff", "--cached"]
     diff = subprocess.check_output(diff_command, cwd=first_directory_inside_diffed_sources)
     with open(patches_folder / "patch.diff", "wb") as f:
         f.write(diff)
+
+    # Calculate SHA256 hash of 'patch.diff' and encode in base64
+    patch_diff_path = patches_folder / "patch.diff"
+    integrity_cmd = (
+        f"openssl dgst -sha256 -binary {patch_diff_path} | openssl base64 -A"
+    )
+    integrity_result = subprocess.run(
+        integrity_cmd, shell=True, capture_output=True, text=True
+    )
+    integrity = "sha256-" + integrity_result.stdout.strip()
+
+    print(f"Calculated hash: {integrity}")
+
+    # Update 'source.json' with the new patch information
+    source_json_path = folder / "1.83.0.bzl.1" / "source.json"
+    with open(source_json_path, "r") as f:
+        data = json.load(f)
+
+    data["patches"] = {"patch.diff": integrity}
+
+    with open(source_json_path, "w") as f:
+        json.dump(data, f, indent=2)
 
 
 if __name__ == "__main__":

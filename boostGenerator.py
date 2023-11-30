@@ -45,7 +45,7 @@ def generate_source_json(folder_path):
 
         # Write the source.json file
         with open(os.path.join(subfolder_path, "source.json"), "w") as json_file:
-            json.dump(source_data, json_file, indent=4)
+            json.dump(source_data, json_file, indent=2)
 
         print(f"source.json created/updated successfully in {subfolder_path}")
     else:
