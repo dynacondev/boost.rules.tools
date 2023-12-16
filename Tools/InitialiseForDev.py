@@ -32,6 +32,34 @@ def initialise_setup(registry_dir):
     boost_source_dirs = download_sources(boost_libs_newest_dirs)
     initialise_repos(boost_source_dirs, boost_libs_newest_dirs)
 
+    # Set the local git exclude file so that all diffed_sources folders are ignored
+    git_info_dir = os.path.join(registry_dir, ".git", "info")
+    exclude_file_path = os.path.join(git_info_dir, "exclude")
+    exclude_pattern = 'diffed_sources/'
+
+    # Ensure the .git/info directory exists
+    if not os.path.exists(git_info_dir):
+        os.makedirs(git_info_dir)
+
+    # Create the exclude file if it does not exist
+    if not os.path.isfile(exclude_file_path):
+        open(exclude_file_path, "w").close()
+
+    # Read the current contents of the file
+    with open(exclude_file_path, "r") as file:
+        lines = file.readlines()
+
+    # Check if the pattern already exists in the file
+    if any(exclude_pattern in line for line in lines):
+        logging.info(f"'{exclude_pattern}' already exists in exclude file.")
+        return
+
+    # Append the pattern to the file
+    with open(exclude_file_path, "a") as file:
+        file.write(f"\n{exclude_pattern}\n")
+
+    print(f"Added '{exclude_pattern}' to {exclude_file_path}")
+
 
 def create_folders(boost_lib_dirs):
     # Create "diffed_sources" folder if it doesn't exist
@@ -95,14 +123,12 @@ def initialise_repos(boost_source_dirs, boost_libs_newest_dirs):
 
             # Construct the patch file path
             patches_path = os.path.join(
-                os.path.join(
-                    utils.find_matching_path(
-                        boost_libs_newest_dirs,
-                        os.path.basename(os.path.dirname(os.path.dirname(boost_source)))
-                        + os.path.sep,  # Adding the "/" makes sure we don't match only the start of a segment of path
-                    ),
-                    "patches",
+                utils.find_matching_path(
+                    boost_libs_newest_dirs,
+                    os.path.basename(os.path.dirname(os.path.dirname(boost_source)))
+                    + os.path.sep,  # Adding the "/" makes sure we don't match only the start of a segment of path
                 ),
+                "patches",
                 "patch.diff",
             )
 

@@ -26,33 +26,48 @@ def find_boost_lib_dirs(modules_dir):
     return boost_lib_dirs
 
 
-# Find newest version folders
-def find_boost_lib_newest_dirs(boost_lib_dirs):
+def find_boost_lib_newest_dirs(paths):
     boost_libs_newest_dirs = []
-    for lib in boost_lib_dirs:
-        found_versions = []
 
-        for version in os.listdir(lib):
-            if os.path.isdir(os.path.join(lib, version)) and version.startswith("1."):
-                found_versions.append(version)
+    # Handle single path input by converting it to a list
+    if isinstance(paths, str):
+        paths = [paths]
 
-        # Split the name and convert each part to an integer & Sort the directories based on the versioning scheme
-        found_versions.sort(
-            key=lambda x: tuple(int(part) for part in x.split(".") if part.isdigit())
+    for lib in paths:
+        newest = find_newest_version_from_paths(
+            [os.path.join(lib, path) for path in os.listdir(lib)]
         )
-
-        # The newest directory is the last in the sorted list
-        newest_version = found_versions[-1] if found_versions else None
-
-        if newest_version:
-            boost_libs_newest_dirs.append(os.path.join(lib, newest_version))
-            logging.info(
-                f"The newest version for: {os.path.basename(lib)} - {newest_version}"
-            )
-        else:
-            logging.error(f"No newest found. Directories were: {found_versions}")
+        if newest:
+            boost_libs_newest_dirs.append(newest)
 
     return boost_libs_newest_dirs
+
+
+# Find newest version folders
+def find_newest_version_from_paths(paths):
+    found_versions = []
+
+    # Find all directories starting with "1."
+    for version in paths:
+        if os.path.isdir(version) and os.path.basename(version).startswith("1."):
+            found_versions.append(version)
+
+    # Sort the directories based on the versioning scheme
+    found_versions.sort(
+        key=lambda x: tuple(
+            int(part) for part in os.path.basename(x).split(".") if part.isdigit()
+        )
+    )
+
+    # The newest directory is the last in the sorted list
+    newest_version = found_versions[-1] if found_versions else None
+
+    if newest_version:
+        logging.info(f"The newest version is: {os.path.basename(newest_version)}")
+        return newest_version
+    else:
+        logging.error(f"No newest found. Directories were: {found_versions}")
+        return None
 
 
 def find_boost_sources(boost_lib_dirs):

@@ -8,6 +8,8 @@ import utils
 def tidy_up(registry_dir):
     boost_lib_dirs = utils.find_boost_lib_dirs(os.path.join(registry_dir, "modules"))
 
+    # TODO Ensure everything is patch created etc, warn and stop if changes will be lost
+
     for lib in boost_lib_dirs:
         diffed_sources_dir = os.path.join(lib, "diffed_sources")
         if os.path.exists(diffed_sources_dir):
