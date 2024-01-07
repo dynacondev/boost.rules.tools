@@ -157,7 +157,9 @@ def detect_changed_sources(registry_dir):
             status_code = line[:2]
 
             # Check for untracked (??) and modified but not staged ( M)
-            if status_code != "A ":
+            if status_code != "A " and not (
+                status_code == "M " and line.endswith(".gitignore")
+            ):
                 file_path = line[3:]
                 unstaged_changes.append(file_path)
 

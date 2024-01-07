@@ -3,6 +3,9 @@ default_copts = select({
     "@platforms//os:windows": ["/W0"],
     "//conditions:default": ["-w"],
 })
+#  + select({
+#     "//conditions:default": ["-std=c++17"],
+# })
 
 default_defines = select({
     "@boost.rules.tools//:windows_x86_64": ["BOOST_ALL_NO_LIB"],  # Turn auto_link off in MSVC compiler
