@@ -35,7 +35,7 @@ def initialise_setup(registry_dir):
     # Set the local git exclude file so that all diffed_sources folders are ignored
     git_info_dir = os.path.join(registry_dir, ".git", "info")
     exclude_file_path = os.path.join(git_info_dir, "exclude")
-    exclude_pattern = 'diffed_sources/'
+    exclude_pattern = "diffed_sources/"
 
     # Ensure the .git/info directory exists
     if not os.path.exists(git_info_dir):
@@ -52,13 +52,13 @@ def initialise_setup(registry_dir):
     # Check if the pattern already exists in the file
     if any(exclude_pattern in line for line in lines):
         logging.info(f"'{exclude_pattern}' already exists in exclude file.")
-        return
+    else:
+        # Append the pattern to the file
+        with open(exclude_file_path, "a") as file:
+            file.write(f"\n{exclude_pattern}\n")
+        print(f"Added '{exclude_pattern}' to {exclude_file_path}")
 
-    # Append the pattern to the file
-    with open(exclude_file_path, "a") as file:
-        file.write(f"\n{exclude_pattern}\n")
-
-    print(f"Added '{exclude_pattern}' to {exclude_file_path}")
+    print("Initialization complete.")
 
 
 def create_folders(boost_lib_dirs):
