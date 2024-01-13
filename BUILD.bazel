@@ -1,6 +1,7 @@
+# load("@supertool_pip//:requirements.bzl", "requirement")
+
 package(default_visibility = ["//visibility:public"])
 
-# Hopefully, the need for these OSxCPU config_setting()s will be obviated by a fix to https://github.com/bazelbuild/platforms/issues/36
 config_setting(
     name = "linux_arm",
     constraint_values = [
@@ -72,3 +73,13 @@ config_setting(
         "@platforms//cpu:aarch64",
     ],
 )
+
+# py_binary(
+#     name = "super_tool",
+#     srcs = ["super_tool.py"],
+#     deps = [
+#         requirement("idna"),
+#         requirement("Requests"),
+#         requirement("prompt_toolkit"),
+#     ],
+# )

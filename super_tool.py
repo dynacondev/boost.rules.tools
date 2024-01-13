@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import threading
+from queue import Queue
 import json
 import shutil
 import requests
@@ -12,6 +13,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.styles import Style
 from prompt_toolkit.shortcuts import (
     radiolist_dialog,
+    checkboxlist_dialog,
     input_dialog,
     message_dialog,
     button_dialog,
@@ -23,11 +25,11 @@ module_source_file_name = "source.json"
 
 def main(registry_dir):
     # Important Variables
+    last_command_status = None
     modules_dir = os.path.join(registry_dir, "modules")
     boost_lib_dirs = find_boost_lib_dirs(modules_dir)
     boost_lib_newest_version_dirs = find_boost_lib_newest_dirs(boost_lib_dirs)
     boost_source_dirs = find_boost_source_dirs(boost_lib_newest_version_dirs)
-    # [os.path.join(lib_dir, "diffed_sources") for lib_dir in boost_lib_dirs]
 
     # Setup logging
     logger = logging.getLogger("boost")  # Create a named logger
@@ -43,9 +45,16 @@ def main(registry_dir):
 
     # Main Menu loop
     while True:
+        if last_command_status:
+            menu_text = HTML(
+                f"<ansired><b>Last Command Status: {last_command_status}</b></ansired>\n\nPlease select an option:"
+            )
+        else:
+            menu_text = "Welcome to the super_tool! Please select an option:"
+
         menu_selection = radiolist_dialog(
             title="Main Menu",
-            text="Welcome to the SuperTool! Please select an option:",
+            text=menu_text,
             values=[
                 ("setup_registry", "Set up your Registry for Boost Module Maintenance"),
                 ("patch_generator", "Generate Patches from Changes"),
@@ -79,23 +88,48 @@ def main(registry_dir):
             )
 
             # Set the local git exclude file so that all diffed_sources folders are ignored
+            print("Setting git exclude file...")
             set_git_exclude(registry_dir)
 
+            last_command_status = "Registry initialization Success"
             print("Registry initialization complete!")
 
         elif menu_selection == "patch_generator":
-            patch_generator(registry_dir)
+            # Get the base commit to track changes from
+            print("Getting base commit...")
+            base_git_commit_hash = get_base_commit(registry_dir)
+
+            # Detect changed sources since commit
+            print("Detecting changed sources...")
+            updated_sources = detect_changed_sources(boost_source_dirs)
+
+            # Bump modules needing version bump (also patches them)
+            print("Checking for modules needing bumping...")
+            bumped_modules = bump_modules(
+                registry_dir, base_git_commit_hash, updated_sources
+            )
+
+            # Remove bumped sources as they get patched in bumping
+            for module in bumped_modules:
+                updated_sources.remove(module)
+
+            # Patch modules needing patches
+            if updated_sources:
+                print("Patching modules...")
+                patch_and_hash(registry_dir, updated_sources)
+
+            last_command_status = "Patching Complete"
 
         elif menu_selection == "moduleBump":
-            print("Not implemented yet... sorry!")
-            break
+            last_command_status = "Module bumping isn't implemented yet. Sorry!"
 
         elif menu_selection == "boostBump":
-            print("Not implemented yet either... sorry!")
-            break
+            last_command_status = "Boost version bumping isn't implemented yet. Sorry!"
 
         elif menu_selection == "clean":
+            print("Deleting files...")
             tidy_up(boost_lib_dirs)
+            last_command_status = "Clean Complete"
 
         else:
             break
@@ -154,7 +188,7 @@ def initialize_repo(boost_source, boost_libs_newest_dirs):
                 ["git", "add", "."],
                 cwd=boost_source,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, # Suppress some annoying "CRLF will be replaced by LF" warnings
+                stderr=subprocess.DEVNULL,  # Suppress some annoying "CRLF will be replaced by LF" warnings
             )
             if result.stderr:
                 logging.error(f"Error adding files: {result.stderr.decode()}")
@@ -200,8 +234,6 @@ def initialize_repo(boost_source, boost_libs_newest_dirs):
 
 
 def set_git_exclude(registry_dir):
-    print("Setting git exclude file...")
-
     git_info_dir = os.path.join(registry_dir, ".git", "info")
     exclude_file_path = os.path.join(git_info_dir, "exclude")
     exclude_pattern = "diffed_sources/"
@@ -227,37 +259,30 @@ def set_git_exclude(registry_dir):
             file.write(f"\n{exclude_pattern}\n")
 
 
-# Step 1, stage changes, record which modules have changed
-# Step 2, bump relevant versions, noting which are already bumped
-# Step 3, calc hashes etc
-
-
 def patch_generator(registry_dir):
     page_title = "Module Patch Generator"
-    base_git_commit_hash = "fiwreo423few"
-    # base_git_commit_hash = get_commit_before_oldest_local_only()
 
-    base_commit_choice = button_dialog(
-        title=page_title,
-        text="Using commit "
-        + base_git_commit_hash
-        + " as base. Changes will be calculated since then.",
-        buttons=[
-            ("Confirm", True),
-            ("Change Commit", False),
-        ],
-        style=get_custom_style(),
-    ).run()
+    # base_commit_choice = button_dialog(
+    #     title=page_title,
+    #     text="Using commit "
+    #     + base_git_commit_hash
+    #     + " as base. Changes will be calculated since then.",
+    #     buttons=[
+    #         ("Confirm", True),
+    #         ("Change Commit", False),
+    #     ],
+    #     style=get_custom_style(),
+    # ).run()
 
-    if not base_commit_choice:
-        base_git_commit_hash = input_dialog(
-            title=page_title,
-            text="Please enter the commit hash to use as base:",
-            style=get_custom_style(),
-        ).run()
+    # if not base_commit_choice:
+    #     base_git_commit_hash = input_dialog(
+    #         title=page_title,
+    #         text="Please enter the commit hash to use as base:",
+    #         style=get_custom_style(),
+    #     ).run()
 
-    # Detect changed modules since commit
-    updated_modules = detect_changed_modules(registry_dir, base_git_commit_hash)
+    # # Detect changed modules since commit
+    # updated_modules = detect_changed_modules(registry_dir, base_git_commit_hash)
 
     # Detect modules that haven't been bumped & need to be
     bump_modules = detect_not_bumped(
@@ -309,104 +334,199 @@ def patch_generator(registry_dir):
         pass
 
 
-def get_commit_before_oldest_local_only(remote_branch="origin/main"):
-    # Fetch the latest information from the remote
-    subprocess.run(["git", "fetch"])
-
-    # Get all local-only commits
+def get_base_commit(
+    registry_dir,
+    upstream_remote="upstream",
+    upstream_branch="main",
+    local_branch="HEAD",
+):
+    # Check if the 'upstream' remote exists, add it if not
     result = subprocess.run(
-        ["git", "log", "--oneline", f"{remote_branch}..HEAD"],
+        ["git", "remote"],
+        cwd=registry_dir,
         stdout=subprocess.PIPE,
         text=True,
     )
 
-    commits = result.stdout.strip().split("\n")
-    if len(commits) > 1:
-        # Get the hash of the second-to-last commit (oldest local-only)
-        oldest_local_only = commits[-1].split()[0]
+    if "upstream" not in result.stdout.strip().split("\n"):
+        subprocess.run(
+            ["git", "remote", "add", "upstream", remote_url],
+            cwd=registry_dir,
+        )
 
-        # Get the commit before the oldest local-only commit
+    # Fetch the latest information from the upstream
+    subprocess.run(
+        ["git", "fetch", upstream_remote, upstream_branch],
+        cwd=registry_dir,
+    )
+
+    # Find the last commit upstream that we based our changes on
+    base_git_commit_hash = find_git_divergence(
+        registry_dir, upstream_remote, upstream_branch, local_branch
+    )
+
+    if base_git_commit_hash:
+        # Get the commit details for display to user
+        commit_details = ""
+        for key, value in get_commit_details(
+            registry_dir, base_git_commit_hash
+        ).items():
+            commit_details += f"{key}: {value}\n"
+    else:
+        base_git_commit_hash = "** No Commit Found **"
+
+    # Display confirmation dialogue
+    alternate_commit = input_dialog(
+        title="Verify Base Commit",
+        text=f"We detected {base_git_commit_hash} as the most recent commit in the registry prior to your changes. If you'd like to track changes that occurred after another commit, please enter it below.\n\nCommit {base_git_commit_hash}:\n{commit_details}",
+        style=get_custom_style(),
+    ).run()
+
+    if alternate_commit:
+        base_git_commit_hash = alternate_commit
+
+    return base_git_commit_hash
+
+
+def find_git_divergence(
+    registry_dir,
+    upstream_remote="upstream",
+    upstream_branch="main",
+    local_branch="HEAD",
+):
+    # Get upstream commits
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "--oneline",
+            f"{upstream_remote}/{upstream_branch}",
+        ],
+        cwd=registry_dir,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    upstream_commits = [
+        commit.split(" ")[0] for commit in result.stdout.strip().split("\n")
+    ]
+
+    # Get local commits
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "--oneline",
+            f"{upstream_remote}/{upstream_branch}..{local_branch}",
+        ],
+        cwd=registry_dir,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    local_commits = [
+        commit.split(" ")[0] for commit in result.stdout.strip().split("\n")
+    ]
+
+    # Scenario 1: Most recent commit in main(upstream) with a parent from your branch
+    for commit in upstream_commits:
+        commit_hash = commit.split()[0]
+        parents = (
+            subprocess.run(
+                ["git", "log", "--pretty=%p", "-n", "1", commit_hash],
+                cwd=registry_dir,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            .stdout.strip()
+            .split()
+        )
+        for parent in parents:
+            if parent in local_commits:
+                return commit_hash
+
+    # Scenario 2: Oldest commit of your local branch with a parent in main(upstream)
+    for commit in reversed(local_commits):  # Start from the oldest
+        commit_hash = commit.split()[0]
+        parents = (
+            subprocess.run(
+                ["git", "log", "--pretty=%p", "-n", "1", commit_hash],
+                cwd=registry_dir,
+                stdout=subprocess.PIPE,
+                text=True,
+            )
+            .stdout.strip()
+            .split()
+        )
+        for parent in parents:
+            if parent in upstream_commits:
+                return parent
+
+
+def get_commit_details(registry_dir, commit_hash):
+    commands = {
+        "Author": ["git", "show", "-s", "--format=%an", commit_hash],
+        "Date": ["git", "show", "-s", "--format=%ad", commit_hash],
+        "Message": ["git", "show", "-s", "--format=%B", commit_hash],
+    }
+    details = {}
+    for key, command in commands.items():
         result = subprocess.run(
-            ["git", "log", "--oneline", "-1", f"{oldest_local_only}^"],
+            command,
+            cwd=registry_dir,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        details[key] = result.stdout.strip()
+    return details
+
+
+def detect_changed_sources(boost_source_dirs):
+    changed_sources = []
+
+    for source in boost_source_dirs:
+        # Check the status to see if there are any changes that aren't staged
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=source,
             stdout=subprocess.PIPE,
             text=True,
         )
 
-        return result.stdout.strip().split()[0]  # Return the hash of the commit
-    else:
-        # If there are no local-only commits, return the latest commit
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"], stdout=subprocess.PIPE, text=True
-        )
-        return result.stdout.strip()
+        unstaged_changes = []
+        for line in result.stdout.splitlines():
+            status_code = line[:2]
+
+            if status_code != "A " and not (
+                status_code == "M " and line.endswith(".gitignore")
+            ):
+                file_path = line[3:]
+                unstaged_changes.append(file_path)
+
+        if unstaged_changes:
+            changed_sources.append(source)
+
+    return changed_sources
 
 
-def detect_changed_modules(registry_dir, modules_dir, base_commit_hash):
-    modified_modules = []
-
-    def check_and_add(path):
-        # Check if the trimmed path starts with "modules" + os.sep #TODO HERE!
-        if path.startswith("modules" + os.sep):
-            # Split the path by os.sep and extract the second segment
-            segments = path.split(os.sep)
-            if len(segments) >= 2:
-                second_segment = segments[1]
-                if second_segment not in modified_modules:
-                    modified_modules.append(second_segment)
-
-    # Run git status with porcelain flag
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=registry_dir,
-        stdout=subprocess.PIPE,
-        text=True,
-    )
-
-    for line in result.stdout.splitlines():
-        if line.startswith("??") or line.startswith(" M"):
-            # Strip the git status characters and leading spaces
-            trimmed_path = line[3:].strip().strip('"')
-            check_and_add(trimmed_path)
-
-    # Run git diff between the commit hash and HEAD
-    result = subprocess.run(
-        ["git", "diff", "--name-only", base_commit_hash],
-        cwd=registry_dir,
-        stdout=subprocess.PIPE,
-        text=True,
-    )
-
-    # Parse the output
-    for file_path in result.stdout.strip().split("\n"):
-        check_and_add(file_path)
-
-    # First, create a list of joined paths
-    modified_module_dirs = [
-        os.path.join(registry_dir, "modules", segment) for segment in modified_modules
-    ]
-
-    # Then, filter this list based on whether each path is in modules_dir
-    modified_module_dirs = [
-        dir_path for dir_path in modified_module_dirs if dir_path in modules_dir
-    ]
-
-    return modified_module_dirs
-
-
-def detect_not_bumped(registry_dir, changed_modules, base_commit_hash):
+def bump_modules(registry_dir, base_git_commit_hash, updated_sources):
     awaiting_bump = []
-    for module_dir in changed_modules:
+    updated_modules = [
+        os.path.join(registry_dir, os.path.basename(source))
+        for source in updated_sources
+    ]
+
+    for module_dir in updated_modules:
         folders = []
+
         result = subprocess.run(
             [
                 "git",
                 "ls-tree",
-                base_commit_hash,
+                base_git_commit_hash,
                 module_dir + os.sep,
             ],
+            cwd=registry_dir,
             stdout=subprocess.PIPE,
             text=True,
-            cwd=registry_dir,
         )
 
         for line in result.stdout.splitlines():
@@ -416,78 +536,62 @@ def detect_not_bumped(registry_dir, changed_modules, base_commit_hash):
                 folders.append(os.path.join(registry_dir, folder_name))
 
         if len(folders) != 0 and (
-            utils.find_newest_version_from_paths(folders)
-            is not utils.find_boost_lib_newest_dirs(module_dir)
+            find_newest_version_from_paths(folders)
+            not in find_boost_lib_newest_dirs(module_dir)
         ):
             awaiting_bump.append(module_dir)
 
-    return awaiting_bump
+    results_array = None
+    if awaiting_bump:
+        # Display confirmation dialogue
+        results_array = checkboxlist_dialog(
+            title="Bump Modules",
+            text="These modules need a version bump! Please select which modules you'd like to bump:",
+            values=awaiting_bump,
+            style=get_custom_style(),
+        ).run()
+
+    patched_sources = []
+    if results_array:
+        # TODO bump modules
+        # awaiting_bump = [
+        #     ("eggs", "Eggs"),
+        #     ("bacon", "Bacon"),
+        #     ("croissants", "20 Croissants"),
+        #     ("daily", "The breakfast of the day"),
+        # ]
+        patched_sources = [
+            updated_sources.substring(source) for source in results_array
+        ]
+        patch_and_hash(registry_dir, patched_sources)
+
+    return patched_sources
 
 
-def bump_versions(modules_to_bump):
-    pass
-
-
-def detect_changed_sources(modules_dir):
-    boost_lib_dirs = utils.find_boost_lib_dirs(modules_dir)
-    changed_modules = []
-
-    for lib in boost_lib_dirs:
-        lib_source = utils.find_boost_sources([lib])[:1]
-
-        if lib_source:  # Check if lib_source is not empty
-            lib_source = lib_source[0]
-        else:
-            # print("No source found for:", os.path.basename(lib)) # TODO debug at info level
-            continue
-
-        # Check the status to see if there are any changes that aren't staged
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=lib_source,
-            stdout=subprocess.PIPE,
-            text=True,
-        )
-
-        unstaged_changes = []
-        for line in result.stdout.splitlines():
-            status_code = line[:2]
-
-            # Check for untracked (??) and modified but not staged ( M)
-            if status_code != "A " and not (
-                status_code == "M " and line.endswith(".gitignore")
-            ):
-                file_path = line[3:]
-                unstaged_changes.append(file_path)
-
-        if unstaged_changes:
-            changed_modules.append(lib)
-
-    return changed_modules
-
-
-def patch_and_hash(registry_dir, updated_modules):
-    boost_libs_newest_dirs = utils.find_boost_lib_newest_dirs(updated_modules)
+def patch_and_hash(registry_dir, lib_sources):
     patch_file_name = "patch.diff"
 
-    for lib in updated_modules:
-        newest_version = utils.find_matching_path(
-            boost_libs_newest_dirs,
-            os.path.basename(lib)
-            + os.path.sep,  # Adding the separator after makes sure we don't match only the start of a segment of path
+    def task(lib_source, registry_dir):
+        module_dir = os.path.join(
+            registry_dir, os.path.dirname(os.path.dirname(lib_source))
         )
+        newest_version = find_boost_lib_newest_dirs([module_dir])[0]
         patches_folder = os.path.join(
             newest_version,
             "patches",
         )
         diff_file = os.path.join(patches_folder, patch_file_name)
-        lib_source = utils.find_boost_sources([lib])[:1][0]
 
-        print("Adding files in:", os.path.basename(lib))
-        subprocess.run(["git", "add", "."], cwd=lib_source)
+        subprocess.run(
+            ["git", "add", "."],
+            cwd=lib_source,
+        )
 
         # Create and write the git diff
-        diff = subprocess.check_output(["git", "diff", "--cached"], cwd=lib_source)
+        diff = subprocess.check_output(
+            ["git", "diff", "--cached"],
+            cwd=lib_source,
+        )
         with open(diff_file, "wb") as f:
             f.write(diff)
 
@@ -499,8 +603,6 @@ def patch_and_hash(registry_dir, updated_modules):
             text=True,
         )
         integrity = "sha256-" + integrity_result.stdout.strip()
-
-        print(f"Calculated hash: {integrity}")
 
         # Update module_source_file_name with the new patch information
         source_json_path = os.path.join(
@@ -519,6 +621,14 @@ def patch_and_hash(registry_dir, updated_modules):
         src = os.path.join(lib_source, "MODULE.bazel")
         dst = os.path.join(newest_version, os.path.basename(src))
         shutil.copy(src, dst)
+
+    run_multithreaded_tasks(
+        lib_sources,
+        task,
+        4,
+        "Patching",
+        registry_dir,
+    )
 
 
 def tidy_up(boost_lib_dirs):
@@ -556,23 +666,6 @@ def find_boost_lib_dirs(modules_dir):
     return boost_lib_dirs
 
 
-def find_boost_lib_newest_dirs(boost_lib_dirs):
-    boost_libs_newest_dirs = []
-
-    # Handle single path input by converting it to a list
-    if isinstance(boost_lib_dirs, str):
-        boost_lib_dirs = [boost_lib_dirs]
-
-    for lib in boost_lib_dirs:
-        newest = find_newest_version_from_paths(
-            [os.path.join(lib, path) for path in os.listdir(lib)]
-        )
-        if newest:
-            boost_libs_newest_dirs.append(newest)
-
-    return boost_libs_newest_dirs
-
-
 def find_boost_source_dirs(boost_lib_newest_version_dirs):
     boost_source_dirs = []
 
@@ -598,6 +691,19 @@ def find_boost_source_dirs(boost_lib_newest_version_dirs):
             )
 
     return boost_source_dirs
+
+
+def find_boost_lib_newest_dirs(boost_lib_dirs):
+    boost_libs_newest_dirs = []
+
+    for lib in boost_lib_dirs:
+        newest = find_newest_version_from_paths(
+            [os.path.join(lib, path) for path in os.listdir(lib)]
+        )
+        if newest:
+            boost_libs_newest_dirs.append(newest)
+
+    return boost_libs_newest_dirs
 
 
 def find_newest_version_from_paths(paths):
@@ -643,7 +749,7 @@ def run_multithreaded_tasks(
     Run tasks across multiple threads with a progress bar.
 
     :param items: A list of items to process.
-    :param worker_func: The function to process each item. It should take one argument.
+    :param worker_func: The function to process each item. It should take one iterable argument. Extra args from this function will be passed to the worker.
     :param num_threads: Number of threads to use.
     :param task_name: Name of the task for display purposes.
     :param args: Additional positional arguments to pass to worker_func.
@@ -654,24 +760,28 @@ def run_multithreaded_tasks(
     completed_tasks = 0
     total_tasks = len(items)
     current_item = [None]  # Using a list to make it mutable
+    items_queue = Queue()
 
-    def thread_worker(segment):
+    # Load the queue with items
+    for item in items:
+        items_queue.put(item)
+
+    def thread_worker():
         nonlocal completed_tasks
-        for item in segment:
+        while not items_queue.empty():
+            item = items_queue.get()
             worker_func(
                 item, *args, **kwargs
             )  # Pass additional arguments to worker_func
             with progress_lock:
                 completed_tasks += 1
                 current_item[0] = str(item)
-
-    # Splitting the list into segments
-    segments = list(split_list(items, num_threads))
+            items_queue.task_done()
 
     # Creating and starting threads
     threads = []
-    for segment in segments:
-        thread = threading.Thread(target=thread_worker, args=(segment,))
+    for _ in range(num_threads):
+        thread = threading.Thread(target=thread_worker)
         thread.start()
         threads.append(thread)
 
@@ -693,14 +803,6 @@ def run_multithreaded_tasks(
         thread.join()
 
 
-def split_list(input_list, n):
-    """Split a list into n segments."""
-    k, m = divmod(len(input_list), n)
-    return (
-        input_list[i * k + min(i, m) : (i + 1) * k + min(i + 1, m)] for i in range(n)
-    )
-
-
 def get_custom_style():
     white = "#ffffff"
     black = "#000000"
@@ -720,16 +822,15 @@ def get_custom_style():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 2:
-        print(
-            "Usage: python SuperTool.py < registry_folder >  < * Optional Shortcuts * >"
-        )
+    workspace_dir = os.environ.get("BUILD_WORKSPACE_DIRECTORY")
+    if workspace_dir is not None:
+        main(workspace_dir)
     else:
-        main(sys.argv[1])
+        if len(sys.argv) > 2:
+            print(
+                "Usage: python super_tool.py < registry_folder >  < * Optional Shortcuts * >"
+            )
+        else:
+            main(sys.argv[1])
 
     sys.exit(1)
-
-
-# text = input_dialog(
-#     title="Enter Text", text="Enter text (or leave empty to finish):"
-# ).run()
