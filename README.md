@@ -2,6 +2,8 @@
 
 Welcome to boost.rules.tools! This repository is your toolkit for all things **Boost Module** related within the [Bazel](https://bazel.build/) ecosystem. Our goal is to make your life easier, so you (as an awesome package maintainer) can focus on editing a Boost module's `BUILD.bzl` file and let us handle the rest. ***Everything in here relates to the Boost modules in the [Bazel Central Registry](https://registry.bazel.build/).***
 
+![Demo](https://github.com/dynacondev/boost.rules.tools/assets/118163872/de3be483-5dab-4b4d-a638-1a1fc178cc2f)
+
 ## ⚠︎ Current Status
 
 This repo is currently under active development! Some of the tasks that are still beind developed are:
@@ -10,7 +12,7 @@ This repo is currently under active development! Some of the tasks that are stil
 - Boost Version Changes - Working on automatically determining dependencies for all modules. Initial version based on [boostdep-report](https://github.com/pdimov/boostdep-report)
 - Windows Support - Not yet tested
 - Patching function - Tidy up for readability
-- Bump Modules function - Implement multithreading similar to other functions
+- Multithreading - Currently implemented on download and repo initialization, a few more functions need implementation
 
 ## 👋 Hey You!
 
@@ -52,7 +54,7 @@ You're in the right place if you want to do any of the following (or similar):
 
 Via either method, grab yourself a copy of [bazel-central-registry](https://github.com/bazelbuild/bazel-central-registry).
 
-### ~~Step 2. Run the super_tool~~ - Not yet working!
+### ~~Step 2. Run the super_tool~~ - Not yet working! Please run the tool directly!
 
 ~~From the root directory of the [bazel-central-registry](https://github.com/bazelbuild/bazel-central-registry) you just cloned, run:~~
 

@@ -350,7 +350,7 @@ def get_base_commit(
 
     if "upstream" not in result.stdout.strip().split("\n"):
         subprocess.run(
-            ["git", "remote", "add", "upstream", remote_url],
+            ["git", "remote", "add", "upstream", "https://github.com/bazelbuild/bazel-central-registry"],
             cwd=registry_dir,
         )
 
