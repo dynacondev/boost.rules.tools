@@ -7,6 +7,10 @@ default_copts = select({
 #     "//conditions:default": ["-std=c++17"],
 # })
 
+
+# TODO defines = [ "BOOST_NO_CXX20_HDR_RANGES",
+# TODO set all to cxx20?
+
 default_defines = select({
     "@boost.rules.tools//:windows_x86_64": ["BOOST_ALL_NO_LIB"],  # Turn auto_link off in MSVC compiler
     "//conditions:default": [],
@@ -59,19 +63,23 @@ def boost_test(
         exclude_src = [],
         deps = [],
         file_extensions = ".cpp",
+        expect_fail = False,
         **kwargs):
-    native.cc_test(
-        name = name,
-        size = size,
-        srcs = srcs + [name + file_extensions] + native.glob(
-            ["**/*.hpp"],
-            exclude = exclude_src,
-            allow_empty = True,
-        ),
-        deps = deps,
-        **kwargs
-    )
-    return ":" + name
+    if expect_fail:
+        pass
+    else:
+        native.cc_test(
+            name = name,
+            size = size,
+            srcs = srcs + [name + file_extensions] + native.glob(
+                ["**/*.hpp"],
+                exclude = exclude_src,
+                allow_empty = True,
+            ),
+            deps = deps,
+            **kwargs
+        )
+        return ":" + name
 
 def boost_test_set(
         names,
@@ -80,11 +88,13 @@ def boost_test_set(
         exclude_src = [],
         deps = [],
         file_extensions = ".cpp",
+        expect_fail = False,
         **kwargs):
     test_targets = []
     for name in names:
-        boost_test(name = name, size = size, srcs = srcs, exclude_src = exclude_src, deps = deps, file_extensions = file_extensions, **kwargs)
-        test_targets.append(":" + name)
+        targetResult = boost_test(name = name, size = size, srcs = srcs, exclude_src = exclude_src, deps = deps, file_extensions = file_extensions, expect_fail = expect_fail, **kwargs)
+        if targetResult:
+            test_targets.append(targetResult)
     return test_targets
 
 # def boost_test(
@@ -93,9 +103,9 @@ def boost_test_set(
 #         srcs = [],
 #         exclude_src = [],
 #         deps = [],
-#         expectFail = False,
+#         expect_fail = False,
 #         **kwargs):
-#     if expectFail:
+#     if expect_fail:
 #         # Generate a custom script that inverts the test result
 #         test_wrapper_name = name + "_wrapper.sh"
 #         native.genrule(
