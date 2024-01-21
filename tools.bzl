@@ -7,7 +7,6 @@ default_copts = select({
 #     "//conditions:default": ["-std=c++17"],
 # })
 
-
 # TODO defines = [ "BOOST_NO_CXX20_HDR_RANGES",
 # TODO set all to cxx20?
 
@@ -60,6 +59,7 @@ def boost_test(
         name,
         size = "small",
         srcs = [],
+        includes = [],
         exclude_src = [],
         deps = [],
         file_extensions = ".cpp",
@@ -69,32 +69,46 @@ def boost_test(
         pass
     else:
         native.cc_test(
-            name = name,
+            name = name + "_test",
             size = size,
             srcs = srcs + [name + file_extensions] + native.glob(
                 ["**/*.hpp"],
                 exclude = exclude_src,
                 allow_empty = True,
             ),
+            includes = includes + ["."],
             deps = deps,
             **kwargs
         )
-        return ":" + name
+        return ":" + name + "_test"
 
 def boost_test_set(
-        names,
-        size = "small",
-        srcs = [],
-        exclude_src = [],
-        deps = [],
+        positive_test_names = None,
+        negative_test_names = [],
+        exclude_tests = [],
         file_extensions = ".cpp",
-        expect_fail = False,
         **kwargs):
     test_targets = []
-    for name in names:
-        targetResult = boost_test(name = name, size = size, srcs = srcs, exclude_src = exclude_src, deps = deps, file_extensions = file_extensions, expect_fail = expect_fail, **kwargs)
-        if targetResult:
-            test_targets.append(targetResult)
+
+    if positive_test_names == None:
+        positive_test_names = native.glob(
+            ["**/*{}".format(file_extensions)],
+            exclude = exclude_tests + [name + file_extensions for name in negative_test_names],
+            allow_empty = True,
+        )
+        extension_length = len(file_extensions)
+        positive_test_names = [name[:-extension_length] for name in positive_test_names]
+
+    for name in positive_test_names:
+        target_result = boost_test(name = name, file_extensions = file_extensions, expect_fail = False, **kwargs)
+        if target_result:
+            test_targets.append(target_result)
+
+    for name in negative_test_names:
+        target_result = boost_test(name = name, file_extensions = file_extensions, expect_fail = True, **kwargs)
+        if target_result:
+            test_targets.append(target_result)
+
     return test_targets
 
 # def boost_test(
