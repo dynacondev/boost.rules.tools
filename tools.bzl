@@ -93,7 +93,7 @@ def boost_test_set(
     if positive_test_names == None:
         positive_test_names = native.glob(
             ["**/*{}".format(file_extensions)],
-            exclude = exclude_tests + [name + file_extensions for name in negative_test_names],
+            exclude = [name + file_extensions for name in exclude_tests] + [name + file_extensions for name in negative_test_names],
             allow_empty = True,
         )
         extension_length = len(file_extensions)
